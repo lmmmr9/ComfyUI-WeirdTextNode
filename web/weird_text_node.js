@@ -1,7 +1,7 @@
 import { app } from "../../scripts/app.js";
 
 const NODE_CLASS = "WeirdTextNode";
-const WIDGET_NAMES = ["text", "text_out"];
+const WIDGET_NAMES = ["up_text", "low_text"];
 const SYNC_WIDGET = "sync";
 const BUTTON_WIDGET = "sync_toggle";
 
@@ -36,7 +36,7 @@ function setupSyncButton(node) {
   const widgets = node.widgets;
   if (!widgets) return;
   const syncWidget = widgets.find((w) => w.name === SYNC_WIDGET);
-  const outWidget = widgets.find((w) => w.name === "text_out");
+  const outWidget = widgets.find((w) => w.name === "low_text");
   if (!syncWidget || !outWidget) return;
   node.__syncButtonReady = true;
 
@@ -45,9 +45,8 @@ function setupSyncButton(node) {
     BUTTON_WIDGET,
     null,
     () => {
-      syncWidget.value = !syncWidget.value;
+      setWidgetValue(node, SYNC_WIDGET, !syncWidget.value);
       button.label = syncLabel(syncWidget.value);
-      node.setDirtyCanvas?.(true, true);
     },
     { serialize: false, canvasOnly: true }
   );
