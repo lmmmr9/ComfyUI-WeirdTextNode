@@ -75,8 +75,18 @@ app.registerExtension({
     };
 
     const onConfigure = nodeType.prototype.onConfigure;
-    nodeType.prototype.onConfigure = function () {
+    nodeType.prototype.onConfigure = function (info) {
       onConfigure?.apply(this, arguments);
+      const named = info?.widgets_values_named;
+      if (named) {
+        for (const name of [...WIDGET_NAMES, SYNC_WIDGET]) {
+          const widget = this.widgets?.find((w) => w.name === name);
+          const value = named[name];
+          if (widget && value !== undefined && value !== null) {
+            widget.value = value;
+          }
+        }
+      }
       const syncWidget = this.widgets?.find((w) => w.name === SYNC_WIDGET);
       const button = this.widgets?.find((w) => w.name === BUTTON_WIDGET);
       if (syncWidget && button) {
@@ -87,7 +97,10 @@ app.registerExtension({
     const onExecuted = nodeType.prototype.onExecuted;
     nodeType.prototype.onExecuted = function (message) {
       onExecuted?.apply(this, arguments);
+      const syncWidget = this.widgets?.find((w) => w.name === SYNC_WIDGET);
+      const syncOn = syncWidget ? !!syncWidget.value : true;
       for (const name of WIDGET_NAMES) {
+        if (name === "low_text" && !syncOn) continue;
         const value = readValue(message, name);
         if (value !== undefined) {
           setWidgetValue(this, name, value);
