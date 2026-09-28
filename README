@@ -1,1 +1,6 @@
 Powered by DeepSeek.
+
+提示词文件命名规则
+weird_prompt_[name].json
+提示词文件路径
+ComfyUI/user/weird_prompt_[name].json
