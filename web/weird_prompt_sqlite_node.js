@@ -37,15 +37,36 @@ async function call(payload) {
       body: JSON.stringify(payload),
     });
     const data = await res.json().catch(() => null);
-    if (!res.ok || !data?.ok) {
-      console.error("[WeirdPromptSQLite] 操作失败:", data?.error ?? res.statusText);
-      return null;
+    if (!data) {
+      const error = res.statusText || "无响应";
+      console.error("[WeirdPromptSQLite] 操作失败:", error);
+      return { ok: false, error };
+    }
+    if (!res.ok || !data.ok) {
+      console.error("[WeirdPromptSQLite] 操作失败:", data.error ?? res.statusText);
     }
     return data;
   } catch (err) {
     console.error("[WeirdPromptSQLite] 操作失败:", err);
-    return null;
+    return { ok: false, error: String(err) };
   }
+}
+
+const labelTimers = new WeakMap();
+
+function flashLabel(node, button, text, resetLabel) {
+  if (!button) return;
+  button.label = text;
+  clearTimeout(labelTimers.get(button));
+  labelTimers.set(
+    button,
+    setTimeout(() => {
+      button.label = resetLabel;
+      labelTimers.delete(button);
+      node.setDirtyCanvas?.(true, true);
+    }, 1800)
+  );
+  node.setDirtyCanvas?.(true, true);
 }
 
 function applyTables(node, tables) {
@@ -89,36 +110,43 @@ function rowPayload(node, action) {
 
 async function refreshTables(node) {
   const data = await call({ action: "tables" });
-  if (data) applyTables(node, data.tables);
+  if (!data?.ok) return;
+  applyTables(node, data.tables);
 }
 
 async function createTable(node) {
   const name = widgetValue(node, "new_table");
   const data = await call({ action: "create", name });
-  if (!data) return;
+  if (!data?.ok) return;
   applyTables(node, data.tables);
   setWidgetValue(node, "table", data.table);
 }
 
-async function loadRow(node) {
+async function loadRow(node, button) {
   if (!currentTable(node)) return;
   const data = await call(rowPayload(node, "get"));
-  if (!data) return;
+  if (!data?.ok) {
+    const missing = typeof data?.error === "string" && data.error.includes("未找到");
+    flashLabel(node, button, missing ? "无此 ID" : "读取失败", "读取");
+    return;
+  }
   setWidgetValue(node, "row_id", data.ID);
   for (const name of VALUE_WIDGETS) setWidgetValue(node, name, data[name]);
 }
 
-async function insertRow(node) {
+async function insertRow(node, button) {
   if (!currentTable(node)) return;
   const data = await call(rowPayload(node, "insert"));
-  if (!data) return;
+  if (!data?.ok) return;
   setWidgetValue(node, "row_id", data.id);
+  for (const name of VALUE_WIDGETS) setWidgetValue(node, name, "");
+  flashLabel(node, button, `已新增 #${data.id}`, "新增");
 }
 
 async function updateRow(node) {
   if (!currentTable(node)) return;
   const data = await call(rowPayload(node, "update"));
-  if (!data) return;
+  if (!data?.ok) return;
   const newId = data.ID ?? data.id;
   if (newId !== undefined) setWidgetValue(node, "row_id", newId);
   for (const name of VALUE_WIDGETS) setWidgetValue(node, name, data[name]);
@@ -132,7 +160,8 @@ async function deleteRow(node) {
     row_id: widgetValue(node, "row_id"),
     write_back: !!widgetValue(node, "write_back"),
   });
-  if (data) setWidgetValue(node, "row_id", 0);
+  if (!data?.ok) return;
+  setWidgetValue(node, "row_id", 0);
 }
 
 function addButton(node, name, label, handler) {
@@ -151,8 +180,8 @@ function setupButtons(node) {
 
   const refresh = addButton(node, "refresh_tables", "刷新表", () => refreshTables(node));
   const create = addButton(node, "create_table", "新建表", () => createTable(node));
-  const load = addButton(node, "load_row", "读取", () => loadRow(node));
-  const insert = addButton(node, "insert_row", "新增", () => insertRow(node));
+  const load = addButton(node, "load_row", "读取", () => loadRow(node, load));
+  const insert = addButton(node, "insert_row", "新增", () => insertRow(node, insert));
   const update = addButton(node, "update_row", "更新", () => updateRow(node));
   const remove = addButton(node, "delete_row", "删除", () => deleteRow(node));
 
@@ -163,6 +192,14 @@ function setupButtons(node) {
     node.widgets.splice(node.widgets.indexOf(refresh), 1);
     node.widgets.splice(node.widgets.indexOf(create), 1);
     node.widgets.splice(index, 0, refresh, create);
+  }
+
+  // 把「读取」放到 row_id 输入框后面
+  const rowIdWidget = getWidget(node, "row_id");
+  if (rowIdWidget) {
+    const rowIdIndex = node.widgets.indexOf(rowIdWidget);
+    node.widgets.splice(node.widgets.indexOf(load), 1);
+    node.widgets.splice(rowIdIndex + 1, 0, load);
   }
 
   // 把「回写」开关放到「新增」与「更新」之间，作为误操作保护开关

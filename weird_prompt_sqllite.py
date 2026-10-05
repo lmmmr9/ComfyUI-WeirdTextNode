@@ -128,6 +128,19 @@ def _count_rows(conn, table):
     return conn.execute(f'SELECT COUNT(*) AS n FROM "{table}"').fetchone()["n"]
 
 
+def _count_table(table):
+    table = _normalize_table(table)
+    if not table:
+        return 0
+    try:
+        with _db() as conn:
+            if not _table_exists(conn, table):
+                return 0
+            return _count_rows(conn, table)
+    except sqlite3.Error:
+        return 0
+
+
 def _insert_row(table, payload):
     table = _normalize_table(table)
     if not table:
@@ -300,16 +313,16 @@ class WeirdPromptSQLiteNode:
                 "table": (names, {"default": names[0]}),
                 "new_table": ("STRING", {"default": ""}),
                 "row_id": ("INT", {"default": 0, "min": 0, "step": 1}),
-                "prompt_name": ("STRING", {"multiline": True, "default": ""}),
+                "prompt_name": ("STRING", {"multiline": False, "default": ""}),
                 "prompt_text": ("STRING", {"multiline": True, "default": ""}),
-                "prompt_lora": ("STRING", {"multiline": True, "default": ""}),
-                "prompt_trigger": ("STRING", {"multiline": True, "default": ""}),
+                "prompt_lora": ("STRING", {"multiline": False, "default": ""}),
+                "prompt_trigger": ("STRING", {"multiline": False, "default": ""}),
                 "write_back": ("BOOLEAN", {"default": False, "label_on": "回写开", "label_off": "回写关"}),
             },
         }
 
     RETURN_TYPES = ("INT", "STRING", "STRING", "STRING", "STRING")
-    RETURN_NAMES = ("id", "prompt_name", "prompt_text", "prompt_lora", "prompt_trigger")
+    RETURN_NAMES = ("length", "prompt_name", "prompt_text", "prompt_lora", "prompt_trigger")
     FUNCTION = "apply"
     OUTPUT_NODE = True
     CATEGORY = "text/utils"
@@ -321,7 +334,7 @@ class WeirdPromptSQLiteNode:
         "「回写」开关位于「新增」与「更新」之间，作为误操作保护："
         "开启时「更新」按 ID 写回四个字段、「删除」按 ID 删除记录；"
         "关闭时「更新」「删除」都不实际生效，仅提示回写关闭。"
-        "输出 id 与四个字段 prompt_name、prompt_text、prompt_lora、prompt_trigger。"
+        "输出 length（表内总记录数）与四个字段 prompt_name、prompt_text、prompt_lora、prompt_trigger。"
     )
 
     @classmethod
@@ -348,17 +361,18 @@ class WeirdPromptSQLiteNode:
         write_back=False,
     ):
         row, _error = _fetch_row(table, row_id)
+        length = _count_table(table)
         if row is None:
             print(f"[WeirdPromptSQLite] 节点执行: 表={table} ID={row_id} 无记录，输出空值")
             return {
                 "ui": {col: [""] for col in COLUMNS},
-                "result": (0, "", "", "", ""),
+                "result": (length, "", "", "", ""),
             }
         values = tuple(row[col] for col in COLUMNS)
-        print(f"[WeirdPromptSQLite] 节点执行: 表={table} ID={row['ID']} 输出四个字段")
+        print(f"[WeirdPromptSQLite] 节点执行: 表={table} ID={row['ID']} 共 {length} 条，输出四个字段")
         return {
             "ui": {col: [row[col]] for col in COLUMNS},
-            "result": (int(row["ID"]),) + values,
+            "result": (length,) + values,
         }
 
 
